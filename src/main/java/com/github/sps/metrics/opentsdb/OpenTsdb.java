@@ -15,11 +15,12 @@
  */
 package com.github.sps.metrics.opentsdb;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.sun.jersey.api.client.Client;
 import com.sun.jersey.api.client.WebResource;
-import com.sun.jersey.api.client.config.ClientConfig;
-import com.sun.jersey.api.client.config.DefaultClientConfig;
-import com.sun.jersey.api.json.JSONConfiguration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import javax.ws.rs.core.MediaType;
 import java.util.Collections;
@@ -38,6 +39,7 @@ public class OpenTsdb {
     public static final int DEFAULT_BATCH_SIZE_LIMIT = 0;
     public static final int CONN_TIMEOUT_DEFAULT_MS = 1000;
     public static final int READ_TIMEOUT_DEFAULT_MS = 1000;
+    private static final Logger logger = LoggerFactory.getLogger(OpenTsdb.class);
 
     /**
      * Initiate a client Builder with the provided base opentsdb server url.
@@ -60,12 +62,12 @@ public class OpenTsdb {
 
     private final WebResource apiResource;
     private int batchSizeLimit = DEFAULT_BATCH_SIZE_LIMIT;
+    private final Gson gson = new GsonBuilder().create();
 
     public static class Builder {
         private Integer connectionTimeout = CONN_TIMEOUT_DEFAULT_MS;
         private Integer readTimeout = READ_TIMEOUT_DEFAULT_MS;
         private String baseUrl;
-        private int batchSizeLimit = DEFAULT_BATCH_SIZE_LIMIT;
 
         public Builder(String baseUrl) {
             this.baseUrl = baseUrl;
@@ -81,13 +83,8 @@ public class OpenTsdb {
             return this;
         }
 
-        public Builder withBatchSizeLimit(int batchSizeLimit) {
-            this.batchSizeLimit = batchSizeLimit;
-            return this;
-        }
-
         public OpenTsdb create() {
-            return new OpenTsdb(baseUrl, connectionTimeout, readTimeout, batchSizeLimit);
+            return new OpenTsdb(baseUrl, connectionTimeout, readTimeout);
         }
     }
 
@@ -95,17 +92,17 @@ public class OpenTsdb {
         this.apiResource = apiResource;
     }
 
-    private OpenTsdb(String baseURL, Integer connectionTimeout, Integer readTimeout, int batchSizeLimit) {
+    private OpenTsdb(String baseURL, Integer connectionTimeout, Integer readTimeout) {
 
-        final ClientConfig clientConfig = new DefaultClientConfig();
-        clientConfig.getFeatures().put(JSONConfiguration.FEATURE_POJO_MAPPING, Boolean.TRUE);
-
-        final Client client = Client.create(clientConfig);
+        final Client client = Client.create();
         client.setConnectTimeout(connectionTimeout);
         client.setReadTimeout(readTimeout);
 
-        this.batchSizeLimit = batchSizeLimit;
         this.apiResource = client.resource(baseURL);
+    }
+
+    public void setBatchSizeLimit(int batchSizeLimit) {
+        this.batchSizeLimit = batchSizeLimit;
     }
 
     /**
@@ -123,12 +120,10 @@ public class OpenTsdb {
      * @param metrics
      */
     public void send(Set<OpenTsdbMetric> metrics) {
-        /*
-         * might want to bind to a specific version of the API.
-         * according to: http://opentsdb.net/docs/build/html/api_http/index.html#api-versioning
-         * "if you do not supply an explicit version, ... the latest version will be used."
-         * circle back on this if it's a problem.
-         */
+        // we set the patch size because of existing issue in opentsdb where large batch of metrics failed
+        // see at https://groups.google.com/forum/#!topic/opentsdb/U-0ak_v8qu0
+        // we recommend batch size of 5 - 10 will be safer
+        // alternatively you can enable chunked request
         if (batchSizeLimit > 0 && metrics.size() > batchSizeLimit) {
             final Set<OpenTsdbMetric> smallMetrics = new HashSet<OpenTsdbMetric>();
             for (final OpenTsdbMetric metric: metrics) {
@@ -144,12 +139,22 @@ public class OpenTsdb {
         }
     }
 
-    public void sendHelper(Set<OpenTsdbMetric> metrics) {
+    private void sendHelper(Set<OpenTsdbMetric> metrics) {
+        /*
+         * might want to bind to a specific version of the API.
+         * according to: http://opentsdb.net/docs/build/html/api_http/index.html#api-versioning
+         * "if you do not supply an explicit version, ... the latest version will be used."
+         * circle back on this if it's a problem.
+         */
         if (!metrics.isEmpty()) {
-            apiResource.path("/api/put")
-                    .type(MediaType.APPLICATION_JSON)
-                    .entity(metrics)
-                    .post();
+            try {
+                apiResource.path("/api/put")
+                        .type(MediaType.APPLICATION_JSON)
+                        .entity(gson.toJson(metrics))
+                        .post();
+            } catch(Exception ex) {
+                logger.error("send to opentsdb endpoint failed", ex);
+            }
         }
     }
 
