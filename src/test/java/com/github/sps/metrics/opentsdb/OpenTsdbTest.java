@@ -66,16 +66,35 @@ public class OpenTsdbTest {
         when(apiResource.type(MediaType.APPLICATION_JSON)).thenReturn(mockBuilder);
         when(mockBuilder.entity(anyObject())).thenReturn(mockBuilder);
 
+        // no request
+        openTsdb.send(new HashSet<OpenTsdbMetric>());
+        verify(mockBuilder, times(0)).post();
+
+        // just one request
         Set<OpenTsdbMetric> metrics = new HashSet<OpenTsdbMetric>(Arrays.asList(OpenTsdbMetric.named("foo").build()));
         openTsdb.send(metrics);
         verify(mockBuilder, times(1)).post();
 
         // split into two request
-        for (int i = 1; i < 10; i++) {
-            metrics.add(OpenTsdbMetric.named("foo").build());
+        for (int i = 1; i < 20; i++) {
+            metrics.add(OpenTsdbMetric.named("foo" + i).build());
         }
         openTsdb.send(metrics);
-        verify(mockBuilder, times(2)).post();
+        verify(mockBuilder, times(3)).post();
+
+    }
+
+    @Test
+    public void testSendNoLimit() {
+        when(apiResource.path("/api/put")).thenReturn(apiResource);
+        when(apiResource.type(MediaType.APPLICATION_JSON)).thenReturn(mockBuilder);
+        when(mockBuilder.entity(anyObject())).thenReturn(mockBuilder);
+        // set batchsize to 0
+        openTsdb.setBatchSizeLimit(0);
+
+        Set<OpenTsdbMetric> metrics = new HashSet<OpenTsdbMetric>(Arrays.asList(OpenTsdbMetric.named("foo").build()));
+        openTsdb.send(metrics);
+        verify(mockBuilder, times(1)).post();
     }
 
     @Test

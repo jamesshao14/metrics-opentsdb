@@ -37,8 +37,9 @@ import java.util.Set;
 public class OpenTsdb {
 
     public static final int DEFAULT_BATCH_SIZE_LIMIT = 0;
-    public static final int CONN_TIMEOUT_DEFAULT_MS = 1000;
-    public static final int READ_TIMEOUT_DEFAULT_MS = 1000;
+    public static final int CONN_TIMEOUT_DEFAULT_MS = 5000;
+    public static final int READ_TIMEOUT_DEFAULT_MS = 5000;
+    public static final String TSDB_POST_ENDPOINT = "/api/put";
     private static final Logger logger = LoggerFactory.getLogger(OpenTsdb.class);
 
     /**
@@ -147,13 +148,15 @@ public class OpenTsdb {
          * circle back on this if it's a problem.
          */
         if (!metrics.isEmpty()) {
+            final String message = gson.toJson(metrics);
             try {
-                apiResource.path("/api/put")
+                apiResource.path(TSDB_POST_ENDPOINT)
                         .type(MediaType.APPLICATION_JSON)
-                        .entity(gson.toJson(metrics))
+                        .entity(message)
                         .post();
             } catch(Exception ex) {
-                logger.error("send to opentsdb endpoint failed", ex);
+                logger.warn(message);
+                logger.warn("send to opentsdb endpoint failed", ex);
             }
         }
     }

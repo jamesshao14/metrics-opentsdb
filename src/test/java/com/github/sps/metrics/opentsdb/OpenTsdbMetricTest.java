@@ -46,6 +46,24 @@ public class OpenTsdbMetricTest {
                 .withTags(Collections.singletonMap("foo", "bar"))
                 .build();
 
+        OpenTsdbMetric o4 = OpenTsdbMetric.named(null)
+                .withValue(1L)
+                .withTimestamp(123L)
+                .withTags(Collections.singletonMap("foo", "bar"))
+                .build();
+
+        OpenTsdbMetric o5 = OpenTsdbMetric.named("asdf")
+                .withValue(1L)
+                .withTimestamp(123L)
+                .withTags(null)
+                .build();
+
+        OpenTsdbMetric o6 = OpenTsdbMetric.named(null)
+                .withValue(2L)
+                .withTimestamp(null)
+                .withTags(null)
+                .build();
+
         assertTrue(o1.equals(o1));
 
         assertFalse(o1.equals(new Object()));
@@ -54,11 +72,17 @@ public class OpenTsdbMetricTest {
         assertTrue(o2.equals(o1));
         assertFalse(o1.equals(o3));
         assertFalse(o3.equals(o1));
+        assertFalse(o1.equals(o4));
+        assertFalse(o1.equals(o5));
+        assertFalse(o1.equals(o6));
 
         assertTrue(o1.hashCode() == o2.hashCode());
         assertFalse(o3.hashCode() == o2.hashCode());
 
         assertNotNull(o1.toString());
 
+
+        o2 = null;
+        assertFalse(o1.equals(o2));
     }
 }

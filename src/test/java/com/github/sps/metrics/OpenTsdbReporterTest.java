@@ -105,6 +105,47 @@ public class OpenTsdbReporterTest {
     }
 
     @Test
+    public void testReportCountersWithoutSkippedPath() {
+        reporter = OpenTsdbReporter.forRegistry(registry)
+                .withClock(clock)
+                .prefixedWith("prefix")
+                .convertRatesTo(TimeUnit.SECONDS)
+                .convertDurationsTo(TimeUnit.MILLISECONDS)
+                .filter(MetricFilter.ALL)
+                .withTags(Collections.singletonMap("foo", "bar"))
+                .withBatchSize(100)
+                .build(opentsdb);
+        when(counter.getCount()).thenReturn(2L);
+        reporter.report(this.<Gauge>map(), this.map("asdf.dec.counter", counter), this.<Histogram>map(), this.<Meter>map(), this.<Timer>map());
+        verify(opentsdb).send(captor.capture());
+
+        Set<OpenTsdbMetric> metrics = captor.getValue();
+        OpenTsdbMetric metric = metrics.iterator().next();
+        assertEquals("prefix.asdf.dec.counter.count", metric.getMetric());
+    }
+
+    @Test
+    public void testReportCountersWithSkippedPath() {
+         reporter = OpenTsdbReporter.forRegistry(registry)
+                .withClock(clock)
+                .prefixedWith("prefix")
+                .convertRatesTo(TimeUnit.SECONDS)
+                .convertDurationsTo(TimeUnit.MILLISECONDS)
+                .filter(MetricFilter.ALL)
+                .withNumKeepPath(2)
+                .withTags(Collections.singletonMap("foo", "bar"))
+                .withBatchSize(100)
+                .build(opentsdb);
+        when(counter.getCount()).thenReturn(2L);
+        reporter.report(this.<Gauge>map(), this.map("package.class.counter", counter), this.<Histogram>map(), this.<Meter>map(), this.<Timer>map());
+        verify(opentsdb).send(captor.capture());
+
+        Set<OpenTsdbMetric> metrics = captor.getValue();
+        OpenTsdbMetric metric = metrics.iterator().next();
+        assertEquals("prefix.class.counter.count", metric.getMetric());
+    }
+
+    @Test
     public void testReportHistogram() {
 
         final Histogram histogram = mock(Histogram.class);

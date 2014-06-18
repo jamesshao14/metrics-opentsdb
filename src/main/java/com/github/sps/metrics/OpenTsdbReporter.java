@@ -19,6 +19,8 @@ import com.codahale.metrics.*;
 import com.codahale.metrics.Timer;
 import com.github.sps.metrics.opentsdb.OpenTsdb;
 import com.github.sps.metrics.opentsdb.OpenTsdbMetric;
+import com.google.common.base.Preconditions;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -30,10 +32,12 @@ import java.util.concurrent.TimeUnit;
  */
 public class OpenTsdbReporter extends ScheduledReporter {
 
+    public static final int DEFAULT_NUM_KEEP_PATH = -1;
     private final OpenTsdb opentsdb;
     private final Clock clock;
     private final String prefix;
     private final Map<String, String> tags;
+    private final int numKeepPath;
 
     /**
      * Returns a new {@link Builder} for {@link OpenTsdbReporter}.
@@ -59,6 +63,7 @@ public class OpenTsdbReporter extends ScheduledReporter {
         private MetricFilter filter;
         private Map<String, String> tags;
         private int batchSize;
+        private int numKeepPath;
 
         private Builder(MetricRegistry registry) {
             this.registry = registry;
@@ -68,6 +73,7 @@ public class OpenTsdbReporter extends ScheduledReporter {
             this.durationUnit = TimeUnit.MILLISECONDS;
             this.filter = MetricFilter.ALL;
             this.batchSize = OpenTsdb.DEFAULT_BATCH_SIZE_LIMIT;
+            this.numKeepPath = DEFAULT_NUM_KEEP_PATH;
         }
 
         /**
@@ -129,7 +135,7 @@ public class OpenTsdbReporter extends ScheduledReporter {
          * Append tags to all reported metrics
          *
          * @param tags
-         * @return
+         * @return {@code this}
          */
         public Builder withTags(Map<String, String> tags) {
             this.tags = tags;
@@ -140,10 +146,25 @@ public class OpenTsdbReporter extends ScheduledReporter {
          * specify number of metrics send in each request
          *
          * @param batchSize
-         * @return
+         * @return {@code this}
          */
         public Builder withBatchSize(int batchSize) {
             this.batchSize = batchSize;
+            return this;
+        }
+
+
+        /**
+         * specify last n part of class path to keep
+         * say a name is package.foo.bar.someclass.method, and numKeepPath is 2
+         * we will shorten the name to someclass.method
+         * as opentsdb recommend smaller name
+         *
+         * @param numKeepPath
+         * @return {@code this}
+         */
+        public Builder withNumKeepPath(int numKeepPath) {
+            this.numKeepPath = numKeepPath;
             return this;
         }
 
@@ -162,7 +183,7 @@ public class OpenTsdbReporter extends ScheduledReporter {
                     prefix,
                     rateUnit,
                     durationUnit,
-                    filter, tags);
+                    filter, tags, numKeepPath);
         }
     }
 
@@ -195,12 +216,20 @@ public class OpenTsdbReporter extends ScheduledReporter {
         }
     }
 
-    private OpenTsdbReporter(MetricRegistry registry, OpenTsdb opentsdb, Clock clock, String prefix, TimeUnit rateUnit, TimeUnit durationUnit, MetricFilter filter, Map<String, String> tags) {
+    private OpenTsdbReporter(MetricRegistry registry, OpenTsdb opentsdb, Clock clock,
+                             String prefix, TimeUnit rateUnit, TimeUnit durationUnit,
+                             MetricFilter filter, Map<String, String> tags, int numKeepPath) {
         super(registry, "opentsdb-reporter", filter, rateUnit, durationUnit);
+        // sanity check
+        Preconditions.checkNotNull(registry);
+        Preconditions.checkNotNull(tags);
+        Preconditions.checkState(!tags.isEmpty());
+
         this.opentsdb = opentsdb;
         this.clock = clock;
         this.prefix = prefix;
         this.tags = tags;
+        this.numKeepPath = numKeepPath;
     }
 
     @Override
@@ -234,6 +263,8 @@ public class OpenTsdbReporter extends ScheduledReporter {
     }
 
     private Set<OpenTsdbMetric> buildTimers(String name, Timer timer, long timestamp) {
+
+        name = getRealName(name);
         final MetricsCollector collector = MetricsCollector.createNew(prefix(name), tags, timestamp);
         final Snapshot snapshot = timer.getSnapshot();
 
@@ -259,6 +290,7 @@ public class OpenTsdbReporter extends ScheduledReporter {
 
     private Set<OpenTsdbMetric> buildHistograms(String name, Histogram histogram, long timestamp) {
 
+        name = getRealName(name);
         final MetricsCollector collector = MetricsCollector.createNew(prefix(name), tags, timestamp);
         final Snapshot snapshot = histogram.getSnapshot();
 
@@ -278,6 +310,7 @@ public class OpenTsdbReporter extends ScheduledReporter {
 
     private Set<OpenTsdbMetric> buildMeters(String name, Meter meter, long timestamp) {
 
+        name = getRealName(name);
         final MetricsCollector collector = MetricsCollector.createNew(prefix(name), tags, timestamp);
 
         return collector.addMetric("count", meter.getCount())
@@ -290,6 +323,7 @@ public class OpenTsdbReporter extends ScheduledReporter {
     }
 
     private OpenTsdbMetric buildCounter(String name, Counter counter, long timestamp) {
+        name = getRealName(name);
         return OpenTsdbMetric.named(prefix(name, "count"))
                 .withTimestamp(timestamp)
                 .withValue(counter.getCount())
@@ -299,6 +333,7 @@ public class OpenTsdbReporter extends ScheduledReporter {
 
 
     private OpenTsdbMetric buildGauge(String name, Gauge gauge, long timestamp) {
+        name = getRealName(name);
         return OpenTsdbMetric.named(prefix(name))
                 .withValue(gauge.getValue())
                 .withTimestamp(timestamp)
@@ -308,6 +343,19 @@ public class OpenTsdbReporter extends ScheduledReporter {
 
     private String prefix(String... components) {
         return MetricRegistry.name(prefix, components);
+    }
+
+    private String getRealName(String name) {
+        if (numKeepPath > 0) {
+            final String[] nameList = name.split("\\.");
+            if (nameList.length <= numKeepPath) {
+                return name;
+            } else {
+                return StringUtils.join(nameList, '.', nameList.length - numKeepPath, nameList.length);
+            }
+        } else {
+            return name;
+        }
     }
 
 }
